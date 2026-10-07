@@ -50,7 +50,9 @@ static SemaphoreHandle_t tpmsMutex = nullptr;
 // (كان معرّفاً هنا خطأً بـ 5 رغم أن التعليق ينص على 6 — تم تصحيحه ليطابق
 // فعلياً النية الأصلية ويمنح هامش استيعاب إضافي 20% في بيئة مزدحمة بالسيارات)
 extern uint8_t g_decodeSlots;   // من rtl_433_ESP.cpp (setBufferSlots)
-static pulse_data_t* s_pulsePool = nullptr;
+// كل خانة تُحجز منفصلة: كتلة واحدة لـ 24 خانة (~118KB) أكبر من أي كتلة متصلة في ESP32 بلا PSRAM
+static pulse_data_t** s_pulsePool = nullptr;
+static uint8_t s_pulsePoolCount = 0;
 static QueueHandle_t s_pulseFreeQueue = nullptr;
 
 pulse_data_t* acquirePulseBuffer() {
@@ -298,19 +300,27 @@ bool rtlSetup() {
     if (!tpmsMutex) return false;
   }
 
-  // حجز 6 بافرات في الـ Internal Heap لمرة واحدة فقط
+  // خانات الفك تُحجز مرة واحدة. لا تلمسها المقاطعة، فتذهب إلى PSRAM إن وُجدت.
+  // إن نفدت الذاكرة قبل اكتمال العدد نكتفي بما حُجز (حدّ أدنى خانتان) بدل فشل الراديو كله.
   if (!s_pulsePool) {
-    // خانات الفك لا تلمسها المقاطعة، فتذهب إلى PSRAM إن وُجدت وتبقى الذاكرة الداخلية حرة
-    s_pulsePool = (pulse_data_t*)heap_caps_calloc(g_decodeSlots, sizeof(pulse_data_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_pulsePool) s_pulsePool = (pulse_data_t*)heap_caps_calloc(g_decodeSlots, sizeof(pulse_data_t), MALLOC_CAP_INTERNAL);
+    s_pulsePool = (pulse_data_t**)calloc(g_decodeSlots, sizeof(pulse_data_t*));
     if (!s_pulsePool) return false;
+    s_pulsePoolCount = 0;
+    for (int i = 0; i < g_decodeSlots; ++i) {
+      pulse_data_t* slot = (pulse_data_t*)heap_caps_calloc(1, sizeof(pulse_data_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!slot) slot = (pulse_data_t*)heap_caps_calloc(1, sizeof(pulse_data_t), MALLOC_CAP_INTERNAL);
+      if (!slot) break;
+      s_pulsePool[s_pulsePoolCount++] = slot;
+    }
+    if (s_pulsePoolCount < 2) return false;
+    g_decodeSlots = s_pulsePoolCount;
   }
 
   if (!s_pulseFreeQueue) {
     s_pulseFreeQueue = xQueueCreate(g_decodeSlots, sizeof(pulse_data_t*));
     if (!s_pulseFreeQueue) return false;
     for (int i = 0; i < g_decodeSlots; ++i) {
-      pulse_data_t* ptr = &s_pulsePool[i];
+      pulse_data_t* ptr = s_pulsePool[i];
       xQueueSend(s_pulseFreeQueue, &ptr, 0);
     }
   }
@@ -380,8 +390,10 @@ void rtlShutdown() {
     s_pulseFreeQueue = nullptr;
   }
   if (s_pulsePool) {
+    for (int i = 0; i < s_pulsePoolCount; ++i) free(s_pulsePool[i]);
     free(s_pulsePool);
     s_pulsePool = nullptr;
+    s_pulsePoolCount = 0;
   }
   if (g_cfg.demod) {
     // تحرير كل النسخ التي أنشأتها register_protocol() فعلياً وتفريغ القائمة
