@@ -372,9 +372,9 @@ static inline void safeTftRenderTireText(int x, int y, const char* label, uint32
 #define RADIOLIB_LOW_LEVEL 1
 #include <TPMS_RTL433.h>
 // سعة مخزن الإشارات للزحمة. ESP32 بلا PSRAM والويب والشاشة يستهلكان الذاكرة،
-// فالقيمة مختارة بحيث يبقى أدنى heap أثناء تحميل كل صفحات الويب فوق 25KB.
-#define DEV_CAPTURE_SLOTS 5
-#define DEV_DECODE_SLOTS  7
+// قياس: 5+7 جعل أكبر كتلة حرة 1KB مع الواي فاي فتعطلت الصفحات وانهار الجهاز؛ 4+5 هو الحد الآمن.
+#define DEV_CAPTURE_SLOTS 4
+#define DEV_DECODE_SLOTS  5
 
 #define CC1101_FREQUENCY 433.92f
 rtl_433_ESP rf;
