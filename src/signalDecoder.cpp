@@ -427,7 +427,8 @@ void rtl_433_DecoderTask(void* pvParameters) {
     // إطعام منتظمة دون أي تغيير في زمن الاستجابة الفعلي (الإشعار عبر
     // xQueueSend من rf.loop() ما زال يوقظ المهمة لحظياً فور وصول أي إشارة).
     esp_task_wdt_reset();
-    if (xQueueReceive(rtl_433_Queue, &rtl_pulses, pdMS_TO_TICKS(5000)) != pdTRUE || !rtl_pulses) {
+    // انتظار 1s ثم تغذية الـ Watchdog: مهلته الافتراضية في Arduino-ESP32 هي 5s فقط
+    if (xQueueReceive(rtl_433_Queue, &rtl_pulses, pdMS_TO_TICKS(1000)) != pdTRUE || !rtl_pulses) {
       continue;
     }
 

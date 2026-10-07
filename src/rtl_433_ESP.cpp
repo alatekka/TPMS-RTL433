@@ -596,6 +596,7 @@ void rtl_433_ESP::rtl_433_ReceiverTask(void* pvParameters) {
     // vTaskDelay(1) حقيقي مرة واحدة على أي حال. هذا يضمن أن مهمة الخمول على
     // Core 0 لا يمكن تجويعها أبداً لدرجة إطلاق Task Watchdog Timer (فشل
     // قاتل/إعادة إقلاع)، بغض النظر عن أي سيناريو حافة.
+#if RSSI_POLL_FAST
     static uint16_t realtimePollGuard = 0;
     static uint16_t idlePollGuard = 0;
     if (receiveMode) {
@@ -619,6 +620,12 @@ void rtl_433_ESP::rtl_433_ReceiverTask(void* pvParameters) {
         delayMicroseconds(IDLE_POLL_GAP_US);
       }
     }
+#else
+    // قراءة RSSI كل 1ms (كما في محرك R3). القراءة السريعة (20-250us) تولّد حركة SPI
+    // كثيفة بجوار CC1101 ترفع الضجيج: قياس على R3 نفس اللوحة: 35 حزمة مقابل 172 في 7 دقائق.
+    // توقيت النبضات نفسه لا يتأثر: تلتقطه مقاطعة GDO0 بدقة الميكروثانية.
+    vTaskDelay(1);
+#endif
   }
 }
 
