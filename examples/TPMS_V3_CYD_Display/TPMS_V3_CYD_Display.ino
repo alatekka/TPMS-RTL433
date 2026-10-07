@@ -83,7 +83,10 @@ int  unitP = 0;             // 0 bar، 1 psi، 2 kPa
 bool soundOn = true, wifiOn = true;
 bool panelInvert = true, panelBgr = false;
 int  techThr = -70;
-uint16_t touchCal[8];       bool touchCalValid = false;
+// معايرة اللمس: القيمة الخام عند حافتي الشاشة لكل محور، وهل المحوران متبادلان
+struct TouchCal { int32_t x0, x1, y0, y1, swap; };
+TouchCal tcal = {177, 3703, 320, 3810, 1};   // قيم معايرة فعلية للوحة CYD بشاشة ST7789 (محوران متبادلان)
+bool touchCalValid = false;
 #define STALE_MS (15UL * 60UL * 1000UL)
 
 SemaphoreHandle_t dataMux;
@@ -101,6 +104,7 @@ volatile bool alarmActive = false, alarmAcked = false;
 bool calibrateRequest = false;
 volatile bool shotRequest = false;
 volatile int tapX = -1, tapY = -1;
+bool touchDebug = false;
 
 struct Btn { int16_t x, y, w, h; uint16_t id; };
 Btn btns[64]; int btnN = 0;
@@ -159,10 +163,10 @@ void loadPrefs() {
   unitP       = prefs.getInt("unit", 0);
   soundOn     = prefs.getBool("sound", true);
   wifiOn      = prefs.getBool("wifi", true);
-  panelInvert = prefs.getBool("inv", true);
+  panelInvert = prefs.getBool("inv2", false);
   panelBgr    = prefs.getBool("bgr", false);
   techThr     = prefs.getInt("tthr", -70);
-  touchCalValid = prefs.getBytes("tcal", touchCal, sizeof(touchCal)) == sizeof(touchCal);
+  touchCalValid = prefs.getBytes("tcal4", &tcal, sizeof(tcal)) == sizeof(tcal);
   prefs.end();
 }
 void savePrefs() {
@@ -179,10 +183,10 @@ void savePrefs() {
   prefs.putInt("unit", unitP);
   prefs.putBool("sound", soundOn);
   prefs.putBool("wifi", wifiOn);
-  prefs.putBool("inv", panelInvert);
+  prefs.putBool("inv2", panelInvert);
   prefs.putBool("bgr", panelBgr);
   prefs.putInt("tthr", techThr);
-  if (touchCalValid) prefs.putBytes("tcal", touchCal, sizeof(touchCal));
+  if (touchCalValid) prefs.putBytes("tcal4", &tcal, sizeof(tcal));
   prefs.end();
 }
 
@@ -929,6 +933,63 @@ void handleTouchAt(int x, int y) {
   if (popupScan >= 0) { popupScan = -1; uiDirty = true; }
 }
 
+bool readTouch(int32_t& x, int32_t& y) {
+  int32_t rx, ry;
+  if (!lcd->getTouchRaw(&rx, &ry)) return false;
+  if (tcal.swap) { int32_t t = rx; rx = ry; ry = t; }
+  if (tcal.x1 == tcal.x0 || tcal.y1 == tcal.y0) return false;
+  x = constrain((rx - tcal.x0) * SCR_W / (tcal.x1 - tcal.x0), 0, SCR_W - 1);
+  y = constrain((ry - tcal.y0) * SCR_H / (tcal.y1 - tcal.y0), 0, SCR_H - 1);
+  if (touchDebug) Serial.printf("[TOUCH] raw %ld %ld -> %ld %ld\n", (long)rx, (long)ry, (long)x, (long)y);
+  return true;
+}
+
+// ينتظر لمسة ثابتة ويعيد متوسط القيم الخام، ثم ينتظر رفع الإصبع
+bool waitRawTouch(int32_t& ax, int32_t& ay, uint32_t timeoutMs) {
+  uint32_t t0 = millis();
+  int32_t rx, ry;
+  while (lcd->getTouchRaw(&rx, &ry)) { if (millis() - t0 > timeoutMs) return false; delay(10); }
+  while (!lcd->getTouchRaw(&rx, &ry)) { if (millis() - t0 > timeoutMs) return false; delay(10); }
+  delay(60);
+  long sx = 0, sy = 0; int n = 0;
+  for (int i = 0; i < 16; i++) { if (lcd->getTouchRaw(&rx, &ry)) { sx += rx; sy += ry; n++; } delay(8); }
+  if (n < 8) return false;
+  ax = sx / n; ay = sy / n;
+  while (lcd->getTouchRaw(&rx, &ry)) delay(10);
+  delay(150);
+  return true;
+}
+
+void runTouchCalibration() {
+  static const int PX[3] = {20, SCR_W - 20, SCR_W - 20}, PY[3] = {20, 20, SCR_H - 20};
+  int32_t rx[3], ry[3];
+  for (int i = 0; i < 3; i++) {
+    lcd->fillScreen(C_BG);
+    lcd->setFont(&fonts::FreeSansBold9pt7b); lcd->setTextDatum(middle_center); lcd->setTextColor(C_TEXT);
+    lcd->drawString("TOUCH CALIBRATION", SCR_W / 2, SCR_H / 2 - 14);
+    lcd->setFont(&fonts::Font2); lcd->setTextColor(C_MUTED);
+    char b[40]; snprintf(b, sizeof(b), "Press the red target  (%d/3)", i + 1);
+    lcd->drawString(b, SCR_W / 2, SCR_H / 2 + 12);
+    lcd->drawCircle(PX[i], PY[i], 12, C_DANGER); lcd->drawCircle(PX[i], PY[i], 6, C_DANGER);
+    lcd->drawFastHLine(PX[i] - 18, PY[i], 37, C_TEXT); lcd->drawFastVLine(PX[i], PY[i] - 18, 37, C_TEXT);
+    if (!waitRawTouch(rx[i], ry[i], 900000)) { Serial.println("[TOUCH] calibration timeout"); return; }
+    Serial.printf("[TOUCH] point %d raw %ld %ld\n", i, (long)rx[i], (long)ry[i]);
+    if (soundOn) { ledcWriteTone(PIN_SPK, 2700); delay(40); ledcWriteTone(PIN_SPK, 0); }
+  }
+  // من النقطة 0 إلى 1 يتغير X الشاشة فقط: المحور الخام الذي تغيّر أكثر هو محور X
+  TouchCal c;
+  c.swap = abs(ry[1] - ry[0]) > abs(rx[1] - rx[0]);
+  if (c.swap) for (int i = 0; i < 3; i++) { int32_t t = rx[i]; rx[i] = ry[i]; ry[i] = t; }
+  int32_t dx = rx[1] - rx[0], dy = ry[2] - ry[1];
+  if (abs(dx) < 800 || abs(dy) < 600) { Serial.println("[TOUCH] calibration rejected (points too close)"); return; }
+  c.x0 = rx[0] - dx * PX[0] / (PX[1] - PX[0]);
+  c.x1 = c.x0 + dx * SCR_W / (PX[1] - PX[0]);
+  c.y0 = ry[1] - dy * PY[1] / (PY[2] - PY[1]);
+  c.y1 = c.y0 + dy * SCR_H / (PY[2] - PY[1]);
+  tcal = c; touchCalValid = true; savePrefs();
+  Serial.printf("[TOUCH] calibrated x %ld..%ld y %ld..%ld swap %ld\n", (long)c.x0, (long)c.x1, (long)c.y0, (long)c.y1, (long)c.swap);
+}
+
 void uiTask(void*) {
   esp_task_wdt_add(NULL);
   uint32_t lastRender = 0;
@@ -938,18 +999,14 @@ void uiTask(void*) {
     if (calibrateRequest) {
       calibrateRequest = false;
       esp_task_wdt_delete(NULL);
-      lcd->fillScreen(TFT_BLACK);
-      lcd->setTextColor(TFT_WHITE); lcd->setFont(&fonts::Font2); lcd->setTextDatum(middle_center);
-      lcd->drawString("Touch the arrow tips", SCR_W / 2, SCR_H / 2);
-      lcd->calibrateTouch(touchCal, TFT_WHITE, TFT_BLACK, 20);
-      touchCalValid = true; savePrefs();
+      runTouchCalibration();
       esp_task_wdt_add(NULL);
       uiDirty = true;
     }
     if (shotRequest) { shotRequest = false; dumpScreen(); }
     if (tapX >= 0) { handleTouchAt(tapX, tapY); tapX = -1; }
     int32_t tx, ty;
-    bool touched = lcd->getTouch(&tx, &ty);
+    bool touched = readTouch(tx, ty);
     if (touched && !wasTouched) handleTouchAt(tx, ty);
     wasTouched = touched;
 
@@ -1072,6 +1129,8 @@ void handleUsb() {
         millis() / 1000, page, millis() - linkLastMs < 4000 ? "OK" : "LOST", (unsigned long)linkGood, (unsigned long)linkBad,
         (unsigned long)radio.pk, radio.cc, radio.f, radio.bw, ESP.getFreeHeap() / 1024, ESP.getMinFreeHeap() / 1024, wifiRunning, wifiRunning ? WiFi.softAPgetStationNum() : 0);
     else if (!strcmp(line, "tires")) for (int i = 0; i < 5; i++) Serial.printf("[TIRE] %s %s has %d bar %.2f alarms %u\n", TIRE_LBL[i], tcfg[i].id, ts[i].has, ts[i].bar, ts[i].alarms);
+    else if (!strcmp(line, "tcal")) calibrateRequest = true;
+    else if (!strcmp(line, "tdebug")) { touchDebug = !touchDebug; Serial.printf("[CMD] touch debug %d\n", touchDebug); }
     else if (!strcmp(line, "reboot")) ESP.restart();
     else Serial.printf("[CMD] unknown: %s (shot | tap X Y | page N | stat | tires | reboot)\n", line);
   }
@@ -1099,7 +1158,7 @@ void setup() {
   lcd->init();
   lcd->setRotation(1);
   lcd->setBrightness(brightness);
-  if (touchCalValid) lcd->setTouchCalibrate(touchCal);
+  if (!touchCalValid) calibrateRequest = true;   // أول تشغيل: معايرة تلقائية
   band.setColorDepth(16);
   if (!band.createSprite(SCR_W, BAND_H)) Serial.println("[ERR] sprite alloc failed");
 
