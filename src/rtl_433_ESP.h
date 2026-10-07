@@ -11,7 +11,7 @@
 #ifndef rtl_433_ESP_H
 #define rtl_433_ESP_H
 
-#define TPMS_RTL433_VERSION "1.1.0"
+#define TPMS_RTL433_VERSION "1.2.0"
 
 #ifndef RF_CC1101
 #  define RF_CC1101

@@ -1397,6 +1397,8 @@ void rfLoopTask(void* pvParameters) {
         rf.setDecoderMask(activeDecoderMask);
 
         rtl_433_ESP::setPins(PIN_CC_SCK, PIN_CC_MISO, PIN_CC_MOSI, PIN_CC_CS, PIN_CC_GDO0, PIN_CC_GDO2);
+        // ESP32-S3 N16R8: 16 خانة التقاط (ذاكرة داخلية، تكتبها المقاطعة) + 64 خانة فك في PSRAM
+        rtl_433_ESP::setBufferSlots(16, 64);
         bool radioOk = rf.begin(PIN_CC_GDO0, currentFrequencyMhz());
         if (radioOk) {
           rtl_433_ESP::setNotifyTask(xTaskGetCurrentTaskHandle());
@@ -2117,7 +2119,7 @@ void printStatusLine() {
                 ESP.getFreeHeap() / 1024, ESP.getMinFreeHeap() / 1024, ESP.getFreePsram() / 1024,
                 (unsigned long)ccRecoveries);
   uint32_t n = rtl_433_ESP::decodeCount;
-  Serial.printf("[PERF] decode avg %.1f ms max %.1f ms | queue peak %lu/40 | lost capture %u queue %u | cpu %u MHz\n",
+  Serial.printf("[PERF] decode avg %.1f ms max %.1f ms | queue peak %lu/64 | lost capture %u queue %u | cpu %u MHz\n",
                 n ? rtl_433_ESP::decodeUsTotal / 1000.0 / n : 0.0, rtl_433_ESP::decodeUsMax / 1000.0,
                 (unsigned long)rtl_433_ESP::queuePeak, rtl_433_ESP::droppedCaptureBuffers, rtl_433_ESP::droppedDecoderQueue,
                 (unsigned)getCpuFrequencyMhz());
