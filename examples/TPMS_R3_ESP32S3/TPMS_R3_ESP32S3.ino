@@ -2095,7 +2095,7 @@ void setup() {
   setupWebServer();
   Serial.printf("[WIFI] AP '%s' @ %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
 
-  xTaskCreatePinnedToCore(rfLoopTask, "rfLoopTask", 8192, NULL, 3, &rfLoopTaskHandle, 0);
+  xTaskCreatePinnedToCore(rfLoopTask, "rfLoopTask", 8192, NULL, 3, &rfLoopTaskHandle, 1);   // النواة 1: بعيداً عن الواي فاي
   xTaskCreatePinnedToCore(tftUpdateTask, "tftUpdateTask", 8192, NULL, 1, &tftTaskHandle, 1);
   xTaskCreatePinnedToCore(packetProcessingTask, "packetProcessingTask", 8192, NULL, 2, &pktTaskHandle, 1);
   xTaskCreatePinnedToCore(buttonTask, "buttonTask", 3072, NULL, 2, NULL, 1);

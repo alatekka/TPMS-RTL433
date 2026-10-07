@@ -34,7 +34,7 @@ volatile bool rtl_433_radio_config_failed = false;
 
 #define rtl_433_ReceiverTask_Stack    2048
 #define rtl_433_ReceiverTask_Priority 2
-#define rtl_433_ReceiverTask_Core     0
+#define rtl_433_ReceiverTask_Core     1   // بعيداً عن الواي فاي (النواة 0) الذي يؤخر مقاطعة GPIO ويشوّه توقيت النبضات
 
 #ifndef PRETRIGGER_ENABLED
 #  define PRETRIGGER_ENABLED 1

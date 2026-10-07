@@ -4466,7 +4466,7 @@ void setup() {
   server.on("/redirect", captive);
   server.onNotFound(captive);
 
-  xTaskCreatePinnedToCore(rfLoopTask, "rfLoopTask", 8192, NULL, 3, NULL, 0);
+  xTaskCreatePinnedToCore(rfLoopTask, "rfLoopTask", 8192, NULL, 3, NULL, 1);   // النواة 1: مقاطعة الراديو تُربط هنا بعيداً عن الواي فاي
   xTaskCreatePinnedToCore(storageTask, "storageTask", 8192, NULL, 3, NULL, 1);
   xTaskCreatePinnedToCore(framWriterTask, "framWriter", 4096, NULL, 1, NULL, 1);
 
