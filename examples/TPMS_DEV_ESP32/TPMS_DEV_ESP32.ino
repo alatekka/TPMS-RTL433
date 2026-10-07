@@ -371,6 +371,10 @@ static inline void safeTftRenderTireText(int x, int y, const char* label, uint32
 
 #define RADIOLIB_LOW_LEVEL 1
 #include <TPMS_RTL433.h>
+// سعة مخزن الإشارات للزحمة. ESP32 بلا PSRAM والويب والشاشة يستهلكان الذاكرة،
+// فالقيمة مختارة بحيث يبقى أدنى heap أثناء تحميل كل صفحات الويب فوق 25KB.
+#define DEV_CAPTURE_SLOTS 5
+#define DEV_DECODE_SLOTS  7
 
 #define CC1101_FREQUENCY 433.92f
 rtl_433_ESP rf;
@@ -4304,6 +4308,8 @@ void rfLoopTask(void* pvParameters) {
         rtl_433_ESP::setRxBandwidth(currentRxBwKhz()); // تُطبَّق داخل begin
         rf.setRSSIThreshold(rssiDeltaCurrent);
         rtl_433_ESP::setPins(CC1101_SCK, CC1101_MISO, CC1101_MOSI, CC1101_CSN, CC1101_GDO0, CC1101_GDO2);
+        // مخزن الإشارات: DEV_CAPTURE_SLOTS + DEV_DECODE_SLOTS خانة (≈4.9KB لكل خانة من الذاكرة الداخلية)
+        rtl_433_ESP::setBufferSlots(DEV_CAPTURE_SLOTS, DEV_DECODE_SLOTS);
         bool radioOk = rf.begin(CC1101_GDO0, currentFreqMhz());
         if (radioOk) {
           rf.setNotifyTask(xTaskGetCurrentTaskHandle());
@@ -4491,6 +4497,11 @@ void printStatusLine() {
                 (unsigned long)rfQueueDropCounter, st.averageRssi, st.rssiThreshold,
                 ESP.getFreeHeap() / 1024, ESP.getMinFreeHeap() / 1024, isCC1101Ok ? "OK" : "FAIL",
                 (unsigned long)ccRecoveryCounter, framOk, rtcOk, (unsigned)getCpuFrequencyMhz(), WIFI_POWER_DBM[wifiPowerIndex]);
+  uint32_t dn = rtl_433_ESP::decodeCount;
+  Serial.printf("[PERF] decode avg %.1f ms max %.1f ms | queue peak %lu/%u | slots %u+%u | lost capture %u queue %u\n",
+                dn ? rtl_433_ESP::decodeUsTotal / 1000.0 / dn : 0.0, rtl_433_ESP::decodeUsMax / 1000.0,
+                (unsigned long)rtl_433_ESP::queuePeak, rtl_433_ESP::decodeSlots(), rtl_433_ESP::captureSlots(),
+                rtl_433_ESP::decodeSlots(), rtl_433_ESP::droppedCaptureBuffers, rtl_433_ESP::droppedDecoderQueue);
 }
 
 // اختبار ذاتي لصفحات الويب: مهمة منفصلة تطلب الصفحة من خادم الجهاز نفسه

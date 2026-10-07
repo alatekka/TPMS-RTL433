@@ -57,6 +57,8 @@ static unsigned long gapStart = micros();
 static unsigned long signalEnd = micros();
 
 pulse_data_t* _pulseTrains = nullptr;
+DRAM_ATTR uint8_t g_captureSlots = RECEIVER_BUFFER_SIZE_DEFAULT;   // تقرؤه المقاطعة
+uint8_t g_decodeSlots = PULSE_POOL_SIZE_DEFAULT;
 
 int rtl_433_ESP::messageCount = 0;
 volatile int rtl_433_ESP::currentRssi = 0;
@@ -149,7 +151,7 @@ bool rtl_433_ESP::begin(byte inputPin, float receiveFrequency) {
   }
   if (!_pulseTrains) {
     _pulseTrains = static_cast<pulse_data_t*>(heap_caps_calloc(
-        RECEIVER_BUFFER_SIZE, sizeof(pulse_data_t), MALLOC_CAP_INTERNAL));
+        g_captureSlots, sizeof(pulse_data_t), MALLOC_CAP_INTERNAL));
   }
   if (!_pulseTrains) {
     initializationError = rtl_433_ESPError::OutOfMemory;
@@ -269,7 +271,7 @@ bool rtl_433_ESP::receivePulseTrain(pulse_data_t* destination) {
   portENTER_CRITICAL(&captureMux);
   if (_pulseTrains[_avaiablePulseTrain].num_pulses > 0) {
     currentTrain = _avaiablePulseTrain;
-    _avaiablePulseTrain = (_avaiablePulseTrain + 1) % RECEIVER_BUFFER_SIZE;
+    _avaiablePulseTrain = (_avaiablePulseTrain + 1) % g_captureSlots;
     available = true;
   }
   portEXIT_CRITICAL(&captureMux);
@@ -348,7 +350,7 @@ void ICACHE_RAM_ATTR rtl_433_ESP::interruptHandler() {
 void rtl_433_ESP::resetReceiver() {
   if (!_pulseTrains) return;
   portENTER_CRITICAL(&captureMux);
-  for (unsigned int i = 0; i < RECEIVER_BUFFER_SIZE; i++) {
+  for (unsigned int i = 0; i < g_captureSlots; i++) {
     _pulseTrains[i].num_pulses = 0;
   }
   _avaiablePulseTrain = 0;
@@ -548,7 +550,7 @@ void rtl_433_ESP::rtl_433_ReceiverTask(void* pvParameters) {
           receiveMode = false;
           totalSignals++;
           if (rtl_433_capture::isCompleteSignal(_nrpulses, signalEnd - signalStart, PD_MIN_PULSES, MINIMUM_SIGNAL_LENGTH)) {
-            uint8_t nextTrain = (_actualPulseTrain + 1) % RECEIVER_BUFFER_SIZE;
+            uint8_t nextTrain = (_actualPulseTrain + 1) % g_captureSlots;
             portENTER_CRITICAL(&captureMux);
             if (!rtl_433_capture::canPublishToNextBuffer(_pulseTrains[nextTrain].num_pulses)) {
               // (حافة نادرة) البافر التالي ممتلئ فعلاً: نسقط الإشارة، لكن
@@ -708,6 +710,17 @@ bool rtl_433_ESP::setFrequency(float mhz) {
 }
 
 float rtl_433_ESP::getFrequency() { return currentFrequency; }
+
+bool rtl_433_ESP::setBufferSlots(uint8_t captureSlots, uint8_t decodeSlots) {
+  if (initialized || _pulseTrains) return false;   // بعد begin() لا يمكن تغيير السعة
+  if (captureSlots < 2 || captureSlots > RECEIVER_BUFFER_SIZE_MAX) return false;
+  if (decodeSlots < 2 || decodeSlots > PULSE_POOL_SIZE_MAX) return false;
+  g_captureSlots = captureSlots;
+  g_decodeSlots = decodeSlots;
+  return true;
+}
+uint8_t rtl_433_ESP::captureSlots() { return g_captureSlots; }
+uint8_t rtl_433_ESP::decodeSlots() { return g_decodeSlots; }
 
 void rtl_433_ESP::setPins(int8_t sck, int8_t miso, int8_t mosi, int8_t cs, int8_t gdo0, int8_t gdo2) {
   _pins = {sck, miso, mosi, cs, gdo0, gdo2};

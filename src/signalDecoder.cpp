@@ -49,7 +49,7 @@ static SemaphoreHandle_t tpmsMutex = nullptr;
 // رفع حجم المستودع إلى 6 بافرات لمقاومة دفقات الإشارات الكثيفة
 // (كان معرّفاً هنا خطأً بـ 5 رغم أن التعليق ينص على 6 — تم تصحيحه ليطابق
 // فعلياً النية الأصلية ويمنح هامش استيعاب إضافي 20% في بيئة مزدحمة بالسيارات)
-#define PULSE_POOL_SIZE 5
+extern uint8_t g_decodeSlots;   // من rtl_433_ESP.cpp (setBufferSlots)
 static pulse_data_t* s_pulsePool = nullptr;
 static QueueHandle_t s_pulseFreeQueue = nullptr;
 
@@ -300,14 +300,16 @@ bool rtlSetup() {
 
   // حجز 6 بافرات في الـ Internal Heap لمرة واحدة فقط
   if (!s_pulsePool) {
-    s_pulsePool = (pulse_data_t*)heap_caps_calloc(PULSE_POOL_SIZE, sizeof(pulse_data_t), MALLOC_CAP_INTERNAL);
+    // خانات الفك لا تلمسها المقاطعة، فتذهب إلى PSRAM إن وُجدت وتبقى الذاكرة الداخلية حرة
+    s_pulsePool = (pulse_data_t*)heap_caps_calloc(g_decodeSlots, sizeof(pulse_data_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_pulsePool) s_pulsePool = (pulse_data_t*)heap_caps_calloc(g_decodeSlots, sizeof(pulse_data_t), MALLOC_CAP_INTERNAL);
     if (!s_pulsePool) return false;
   }
 
   if (!s_pulseFreeQueue) {
-    s_pulseFreeQueue = xQueueCreate(PULSE_POOL_SIZE, sizeof(pulse_data_t*));
+    s_pulseFreeQueue = xQueueCreate(g_decodeSlots, sizeof(pulse_data_t*));
     if (!s_pulseFreeQueue) return false;
-    for (int i = 0; i < PULSE_POOL_SIZE; ++i) {
+    for (int i = 0; i < g_decodeSlots; ++i) {
       pulse_data_t* ptr = &s_pulsePool[i];
       xQueueSend(s_pulseFreeQueue, &ptr, 0);
     }
@@ -338,7 +340,7 @@ bool rtlSetup() {
   }
 
   if (!rtl_433_Queue) {
-    rtl_433_Queue = xQueueCreate(PULSE_POOL_SIZE, sizeof(pulse_data_t*));
+    rtl_433_Queue = xQueueCreate(g_decodeSlots, sizeof(pulse_data_t*));
     if (!rtl_433_Queue) return false;
   }
 

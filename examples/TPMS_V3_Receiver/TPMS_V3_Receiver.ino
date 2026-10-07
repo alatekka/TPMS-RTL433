@@ -243,6 +243,8 @@ void rfTask(void*) {
         if (!first) { rf.end(); ccResets++; }
         first = false;
         rtl_433_ESP::setPins(CC_SCK, CC_MISO, CC_MOSI, CC_CS, CC_GDO0, CC_GDO2);
+        // وحدة راديو فقط (لا واي فاي ولا شاشة): مخزن كبير للزحمة مع إبقاء ~90KB حرة
+        rtl_433_ESP::setBufferSlots(8, 24);
         rtl_433_ESP::setRxBandwidth(rxBw);
         rf.setRSSIThreshold(rssiDelta);
         rtl_433_ESP::setDecoderMask(decoderMask);
@@ -329,6 +331,11 @@ void handleUsb() {
                     millis() / 1000, ccOk, currentFreq(), (int)rxBw, rssiDelta, st.averageRssi, st.rssiThreshold,
                     st.capturedSignals, st.decodedMessages, (unsigned long)pktCount, (unsigned long)rejCount,
                     (unsigned long)(st.droppedCaptureBuffers + st.droppedDecoderQueue + queueDrops), ESP.getFreeHeap() / 1024);
+      uint32_t dn = rtl_433_ESP::decodeCount;
+      Serial.printf("[PERF] decode avg %.1f ms max %.1f ms | queue peak %lu/%u | slots %u+%u | lost capture %u queue %u\n",
+                    dn ? rtl_433_ESP::decodeUsTotal / 1000.0 / dn : 0.0, rtl_433_ESP::decodeUsMax / 1000.0,
+                    (unsigned long)rtl_433_ESP::queuePeak, rtl_433_ESP::decodeSlots(), rtl_433_ESP::captureSlots(),
+                    rtl_433_ESP::decodeSlots(), rtl_433_ESP::droppedCaptureBuffers, rtl_433_ESP::droppedDecoderQueue);
     } else if (!strncmp(line, "bw ", 3))   { c["bw"] = atof(line + 3);  applyConfig(c); Serial.printf("[CMD] bw %d kHz\n", (int)rxBw); }
     else if (!strncmp(line, "foff ", 5))   { c["foff"] = atoi(line + 5); applyConfig(c); Serial.printf("[CMD] freq %.3f MHz\n", currentFreq()); }
     else if (!strncmp(line, "rssi ", 5))   { c["d"] = atoi(line + 5);   applyConfig(c); Serial.printf("[CMD] rssi delta %d\n", rssiDelta); }

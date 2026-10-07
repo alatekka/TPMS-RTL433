@@ -126,7 +126,13 @@
 #  define CC1101_RX_BANDWIDTH 812.0f
 #endif
 
-#define RECEIVER_BUFFER_SIZE 4
+// سعة مخزن الإشارات: خانات الالتقاط (تملؤها المقاطعة) + خانات تنتظر الفك.
+// القيم الافتراضية آمنة لأي لوحة؛ ارفعها بـ setBufferSlots() قبل begin() حسب ذاكرة اللوحة.
+// كل خانة = sizeof(pulse_data_t) ≈ 4.9KB.
+#define RECEIVER_BUFFER_SIZE_DEFAULT 4
+#define PULSE_POOL_SIZE_DEFAULT      5
+#define RECEIVER_BUFFER_SIZE_MAX     64
+#define PULSE_POOL_SIZE_MAX          128
 
 // مدة السماح بانخفاض RSSI داخل الإشارة الواحدة قبل اعتبارها انتهت (FSK).
 // حساسات TPMS ترسل حزماً مدتها 10-15ms، وأي هبوط لحظي في RSSI كان يقطعها.
@@ -229,6 +235,11 @@ public:
   // منافذ CC1101 (تُستدعى قبل begin)
   static void setPins(int8_t sck, int8_t miso, int8_t mosi, int8_t cs, int8_t gdo0, int8_t gdo2);
   static rtl_433_ESPPins getPins();
+  // تُستدعى قبل begin(). خانات الالتقاط في الذاكرة الداخلية دائماً (تكتبها المقاطعة)،
+  // وخانات الفك تذهب إلى PSRAM إن وُجدت. تُعيد false إن كانت القيم خارج الحدود.
+  static bool setBufferSlots(uint8_t captureSlots, uint8_t decodeSlots);
+  static uint8_t captureSlots();
+  static uint8_t decodeSlots();
 
   static int16_t setFrequencyDeviation(float value);
   static float getFrequencyDeviation();
