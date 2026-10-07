@@ -2116,6 +2116,11 @@ void printStatusLine() {
                 st.capturedSignals, st.decodedMessages, st.averageRssi, st.rssiThreshold,
                 ESP.getFreeHeap() / 1024, ESP.getMinFreeHeap() / 1024, ESP.getFreePsram() / 1024,
                 (unsigned long)ccRecoveries);
+  uint32_t n = rtl_433_ESP::decodeCount;
+  Serial.printf("[PERF] decode avg %.1f ms max %.1f ms | queue peak %lu/40 | lost capture %u queue %u | cpu %u MHz\n",
+                n ? rtl_433_ESP::decodeUsTotal / 1000.0 / n : 0.0, rtl_433_ESP::decodeUsMax / 1000.0,
+                (unsigned long)rtl_433_ESP::queuePeak, rtl_433_ESP::droppedCaptureBuffers, rtl_433_ESP::droppedDecoderQueue,
+                (unsigned)getCpuFrequencyMhz());
 }
 
 void dumpScreenshot() {

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstring>
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -29,7 +30,12 @@
 // storageTask) لضمان أن فك تشفير أي إشارة راديو واردة له الأولوية المطلقة
 // دائماً على أعمال التخزين والصيانة الخلفية، دون أي تعديل على .ino.
 #  define rtl_433_Decoder_Priority 4
-#  define rtl_433_Decoder_Core     1
+#  if defined(CONFIG_IDF_TARGET_ESP32S3)
+// ESP32-S3: الفك الثقيل على النواة 0 بالتوازي مع الالتقاط الدقيق على النواة 1 (مقاس: 13ms/إشارة، صفر فقد)
+#    define rtl_433_Decoder_Core   0
+#  else
+#    define rtl_433_Decoder_Core   1
+#  endif
 #endif
 
 int rtlVerbose = 0;
@@ -423,6 +429,7 @@ void rtl_433_DecoderTask(void* pvParameters) {
       continue;
     }
 
+    const int64_t decodeStart = esp_timer_get_time();
     rtl_pulses->sample_rate = 1.0e6;
     r_cfg_t* cfg = &g_cfg;
     // ملاحظة أداء: كان هنا سطر "cfg->demod->pulse_data = *rtl_pulses;" ينسخ
@@ -444,6 +451,10 @@ void rtl_433_DecoderTask(void* pvParameters) {
     }
     tpmsUnlock();
 
+    const uint32_t decodeUs = (uint32_t)(esp_timer_get_time() - decodeStart);
+    if (decodeUs > rtl_433_ESP::decodeUsMax) rtl_433_ESP::decodeUsMax = decodeUs;
+    rtl_433_ESP::decodeUsTotal += decodeUs;
+    rtl_433_ESP::decodeCount++;
     rtl_433_ESP::decoderSignals++;
     if (events > 0) {
       rtl_433_ESP::decodedMessages += events;
@@ -466,5 +477,8 @@ void processSignal(pulse_data_t* rtl_pulses) {
   if (!rtl_433_Queue || xQueueSend(rtl_433_Queue, &rtl_pulses, 0) != pdTRUE) {
     rtl_433_ESP::droppedDecoderQueue++;
     releasePulseBuffer(rtl_pulses);
+    return;
   }
+  uint32_t waiting = uxQueueMessagesWaiting(rtl_433_Queue);
+  if (waiting > rtl_433_ESP::queuePeak) rtl_433_ESP::queuePeak = waiting;
 }

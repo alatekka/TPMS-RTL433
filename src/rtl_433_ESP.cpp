@@ -77,6 +77,10 @@ volatile unsigned int rtl_433_ESP::decodedMessages = 0;
 volatile unsigned int rtl_433_ESP::zeroDecodedSignals = 0;
 volatile unsigned int rtl_433_ESP::droppedCaptureBuffers = 0;
 volatile unsigned int rtl_433_ESP::droppedDecoderQueue = 0;
+volatile uint32_t rtl_433_ESP::decodeUsMax = 0;
+volatile uint64_t rtl_433_ESP::decodeUsTotal = 0;
+volatile uint32_t rtl_433_ESP::decodeCount = 0;
+volatile uint32_t rtl_433_ESP::queuePeak = 0;
 
 int rtl_433_ESP::averageRssi = 0;
 int rtl_433_ESP::rssiThresholdDelta = RSSI_THRESHOLD;

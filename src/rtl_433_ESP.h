@@ -285,6 +285,11 @@ public:
   static volatile unsigned int zeroDecodedSignals;
   static volatile unsigned int droppedCaptureBuffers;
   static volatile unsigned int droppedDecoderQueue;
+  // قياس أداء المفكك: زمن الفك لكل إشارة، وأعلى امتلاء لطابور الإشارات
+  static volatile uint32_t decodeUsMax;
+  static volatile uint64_t decodeUsTotal;
+  static volatile uint32_t decodeCount;
+  static volatile uint32_t queuePeak;
 
   static bool ookModulation;
 
