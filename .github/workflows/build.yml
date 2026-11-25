@@ -1,9 +1,16 @@
 name: build
 
+# كل تغيير: بناء النسخ الأربع.
+# وسم v* (مثل v1.2.0): بناء ثم إصدار على GitHub بالملفات التي يأخذها زر التثبيت في alatekka.com.
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+env:
+  ESP32_CORE: 4.0.0-alpha1
 
 jobs:
   build:
@@ -13,15 +20,19 @@ jobs:
       matrix:
         include:
           - name: R3 (ESP32-S3)
+            id: r3
             sketch: examples/TPMS_R3_ESP32S3
             fqbn: esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,FlashMode=qio
           - name: DEV (ESP32)
+            id: dev
             sketch: examples/TPMS_DEV_ESP32
             fqbn: esp32:esp32:esp32:FlashSize=4M,PartitionScheme=min_spiffs
           - name: V3 Receiver (ESP32)
+            id: v3-receiver
             sketch: examples/TPMS_V3_Receiver
             fqbn: esp32:esp32:esp32:FlashSize=4M,PartitionScheme=default
           - name: V3 CYD Display (ESP32)
+            id: v3-display
             sketch: examples/TPMS_V3_CYD_Display
             fqbn: esp32:esp32:esp32:FlashSize=4M,PartitionScheme=min_spiffs
     name: ${{ matrix.name }}
@@ -30,19 +41,50 @@ jobs:
 
       - uses: arduino/setup-arduino-cli@v2
 
+      # الإصدارات مثبّتة: أحدث RadioLib غيّرت CC1101::begin فتوقف البناء
       - name: Install ESP32 core and libraries
         run: |
           arduino-cli config init
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_dev_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@4.0.0-alpha1
-          arduino-cli lib install RadioLib ArduinoJson "Adafruit GFX Library" "Adafruit ST7735 and ST7789 Library" RTClib LovyanGFX
+          arduino-cli core install esp32:esp32@${ESP32_CORE}
+          arduino-cli lib install RadioLib@7.7.1 ArduinoJson@7.4.3 "Adafruit GFX Library@1.12.6" "Adafruit ST7735 and ST7789 Library@1.11.0" RTClib@2.1.4 LovyanGFX@1.2.30
 
       - name: Compile
         run: arduino-cli compile -b "${{ matrix.fqbn }}" --library . --output-dir out "${{ matrix.sketch }}"
 
+      # أسماء ثابتة لكل نسخة: tpms-<id>.bin و tpms-<id>-bootloader.bin و tpms-<id>-partitions.bin
+      - name: Collect firmware
+        run: |
+          mkdir fw
+          s=$(basename "${{ matrix.sketch }}")
+          cp "out/$s.ino.bin"            "fw/tpms-${{ matrix.id }}.bin"
+          cp "out/$s.ino.bootloader.bin" "fw/tpms-${{ matrix.id }}-bootloader.bin"
+          cp "out/$s.ino.partitions.bin" "fw/tpms-${{ matrix.id }}-partitions.bin"
+          cp "$HOME/.arduino15/packages/esp32/hardware/esp32/${ESP32_CORE}/tools/partitions/boot_app0.bin" fw/boot_app0.bin
+          ls -l fw
+
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ strategy.job-index }}
-          path: out/*.bin
+          name: firmware-${{ matrix.id }}
+          path: fw/*.bin
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: fw
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l fw
+          gh release create "${GITHUB_REF_NAME}" fw/*.bin -R "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" \
+            --notes "Firmware for R3, DEV and V3. Install from the browser: https://alatekka.com/project.html?p=tpms — see CHANGELOG.md."
